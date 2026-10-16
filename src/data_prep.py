@@ -1,8 +1,8 @@
 """
 data_prep.py — loading, cleaning, splitting, and the price-tier label.
 
-All data wrangling lives here so the rest of the code just
-calls these functions. The random seed is fixed everywhere (see SEED).
+All data wrangling lives here so the rest of the code just calls these
+functions. The random seed is fixed everywhere (see SEED).
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import pandas as pd
 
 # --- Config -----------------------------------------------------------------
 SEED = 42
-DATA_PATH = "data/bina_az_sale.csv"   # file name inside the Kaggle archive
+DATA_PATH = "data/house_sale.csv"   # file name inside the Kaggle archive
 
 # Columns that LEAK the target (derived from price). Dropped before training.
 #   unit_price  = price / area ("3 450 AZN/m²")  -> price restated per m2
