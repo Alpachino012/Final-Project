@@ -1,0 +1,5 @@
+# Tested with Python 3.14.7 (pandas 3 needs Python >= 3.11).
+numpy==2.5.2
+pandas==3.0.5
+matplotlib==3.11.2
+scikit-learn==1.9.1   # baselines + sanity tests ONLY — not used in our models
