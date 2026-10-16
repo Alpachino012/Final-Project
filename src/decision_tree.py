@@ -71,7 +71,57 @@ class DecisionTree:
         maximizes impurity decrease (feature, threshold, decrease), or
         None if no valid split improves things.
         """
-        raise NotImplementedError("TODO: best split search")
+        n, n_features = X.shape
+        parent_impurity = self._impurity(y)
+        n_left = np.arange(1, n)              # size of the left child
+        n_right = n - n_left
+        best = None
+        best_gain = 0.0                       # a split must strictly help
+
+        for feature in range(n_features):
+            order = np.argsort(X[:, feature], kind="stable")
+            x_sorted = X[order, feature]
+            y_sorted = y[order]
+
+            if self.task == "regression":
+                # variance = mean(y^2) - mean(y)^2 for each child
+                left_sum = np.cumsum(y_sorted)[:-1]
+                left_sq = np.cumsum(y_sorted ** 2)[:-1]
+                right_sum = y_sorted.sum() - left_sum
+                right_sq = (y_sorted ** 2).sum() - left_sq
+                left_imp = left_sq / n_left - (left_sum / n_left) ** 2
+                right_imp = right_sq / n_right - (right_sum / n_right) ** 2
+                left_imp = np.maximum(left_imp, 0.0)     # tiny negative rounding
+                right_imp = np.maximum(right_imp, 0.0)
+            else:
+                one_hot = np.zeros((n, self.n_classes_))
+                one_hot[np.arange(n), y_sorted] = 1.0
+                left_counts = np.cumsum(one_hot, axis=0)[:-1]
+                right_counts = one_hot.sum(axis=0) - left_counts
+                left_imp = self._class_impurity(left_counts, n_left)
+                right_imp = self._class_impurity(right_counts, n_right)
+
+            children_imp = (n_left * left_imp + n_right * right_imp) / n
+            gain = parent_impurity - children_imp
+
+            # a threshold can only sit between two different values,
+            # and both children must keep min_samples_leaf samples
+            valid = x_sorted[1:] > x_sorted[:-1]
+            valid &= (n_left >= self.min_samples_leaf) & (n_right >= self.min_samples_leaf)
+            if not np.any(valid):
+                continue
+            gain = np.where(valid, gain, -np.inf)
+            i = int(np.argmax(gain))         # first best position on ties
+
+            if gain[i] > best_gain:
+                best_gain = float(gain[i])
+                # midpoint between the two neighbouring values (like sklearn)
+                threshold = (x_sorted[i] + x_sorted[i + 1]) / 2.0
+                if threshold == x_sorted[i + 1]:        # float rounding guard
+                    threshold = x_sorted[i]
+                best = (feature, float(threshold), best_gain)
+
+        return best
     
     def _class_impurity(self, counts, n):
         """
