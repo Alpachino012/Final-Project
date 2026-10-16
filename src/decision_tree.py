@@ -72,7 +72,19 @@ class DecisionTree:
         None if no valid split improves things.
         """
         raise NotImplementedError("TODO: best split search")
-
+    
+    def _class_impurity(self, counts, n):
+        """
+        Gini or entropy for many candidate nodes at once.
+        counts: (m, k) class counts, n: (m,) node sizes -> (m,) impurities
+        """
+        p = counts / n[:, None]
+        if self.criterion == "gini":
+            return 1.0 - np.sum(p ** 2, axis=1)
+        # entropy, using 0 * log(0) = 0
+        p_safe = np.where(p > 0, p, 1.0)
+        return -np.sum(p * np.log2(p_safe), axis=1)
+    
     # --- grow / predict -----------------------------------------------------
     def _grow(self, X, y, depth: int) -> Node:
         """Recursively build the tree, respecting the stopping rules."""
