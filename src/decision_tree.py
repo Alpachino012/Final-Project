@@ -136,14 +136,64 @@ class DecisionTree:
         return -np.sum(p * np.log2(p_safe), axis=1)
     
     # --- grow / predict -----------------------------------------------------
+    def _leaf_value(self, y):
+        if self.task == "regression":
+            return float(np.mean(y))
+        counts = np.bincount(y, minlength=self.n_classes_)
+        return counts / len(y)
+    
     def _grow(self, X, y, depth: int) -> Node:
         """Recursively build the tree, respecting the stopping rules."""
-        raise NotImplementedError("TODO: recursive grow")
+        node = Node()
+        node.n_samples = len(y)
+        node.impurity = self._impurity(y)
+        node.value = self._leaf_value(y)
 
+        # stopping rules
+        if self.max_depth is not None and depth >= self.max_depth:
+            return node
+        if len(y) < self.min_samples_split or len(y) < 2 * self.min_samples_leaf:
+            return node
+        if node.impurity == 0.0:                 # pure node
+            return node
+
+        split = self._best_split(X, y)
+        if split is None:
+            return node
+        feature, threshold, gain = split
+
+        # impurity decrease weighted by the share of samples in this node
+        # (same definition as sklearn's min_impurity_decrease)
+        weighted_decrease = len(y) / self.n_samples_total_ * gain
+        if weighted_decrease < self.min_impurity_decrease:
+            return node
+
+        self.feature_importances_[feature] += weighted_decrease
+        go_left = X[:, feature] <= threshold
+        node.feature = feature
+        node.threshold = threshold
+        node.left = self._grow(X[go_left], y[go_left], depth + 1)
+        node.right = self._grow(X[~go_left], y[~go_left], depth + 1)
+        return node
+        
     def fit(self, X, y):
         X = np.asarray(X, dtype=float)
         y = np.asarray(y)
+        if self.task == "classification":
+            # store the original labels, work with 0..k-1 inside the tree
+            self.classes_, y = np.unique(y, return_inverse=True)
+            self.n_classes_ = len(self.classes_)
+        else:
+            y = y.astype(float)
+        self.n_features_ = X.shape[1]
+        self.n_samples_total_ = len(y)
+        self.feature_importances_ = np.zeros(self.n_features_)
+
         self.root = self._grow(X, y, depth=0)
+
+        total = self.feature_importances_.sum()
+        if total > 0:
+            self.feature_importances_ = self.feature_importances_ / total
         return self
 
     def _predict_one(self, x, node: Node):
