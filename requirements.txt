@@ -1,6 +1,5 @@
-# Pin your exact versions (run `pip freeze` once your env works).
-# These are sensible starting points — adjust as needed, then PIN them.
-numpy==1.26.4
-pandas==2.2.2
-matplotlib==3.8.4
-scikit-learn==1.4.2   # baselines / optional bonuses ONLY — not for your models
+# Tested with Python 3.14.7 (pandas 3 needs Python >= 3.11).
+numpy==2.5.2
+pandas==3.0.5
+matplotlib==3.11.2
+scikit-learn==1.9.1   # baselines + sanity tests ONLY — not used in our models
