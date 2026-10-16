@@ -197,11 +197,39 @@ class DecisionTree:
         return self
 
     def _predict_one(self, x, node: Node):
-        raise NotImplementedError("TODO: traverse to a leaf")
+        while not node.is_leaf():
+            if x[node.feature] <= node.threshold:
+                node = node.left
+            else:
+                node = node.right
+        return node.value
 
     def predict(self, X):
-        raise NotImplementedError("TODO: predict")
+        X = np.asarray(X, dtype=float)
+        values = np.array([self._predict_one(x, self.root) for x in X])
+        if self.task == "regression":
+            return values
+        return self.classes_[np.argmax(values, axis=1)]   # majority class
 
     def predict_proba(self, X):
         """Classification only: return class probabilities from leaf counts."""
-        raise NotImplementedError("TODO: predict_proba (classification)")
+        if self.task != "classification":
+            raise ValueError("predict_proba is only for classification")
+        X = np.asarray(X, dtype=float)
+        return np.array([self._predict_one(x, self.root) for x in X])
+
+
+    #For sklearn comparison:
+    def get_depth(self) -> int:
+        def depth(node):
+            if node.is_leaf():
+                return 0
+            return 1 + max(depth(node.left), depth(node.right))
+        return depth(self.root)
+
+    def get_n_leaves(self) -> int:
+        def leaves(node):
+            if node.is_leaf():
+                return 1
+            return leaves(node.left) + leaves(node.right)
+        return leaves(self.root)
