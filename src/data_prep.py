@@ -1,29 +1,95 @@
 """
 data_prep.py — loading, cleaning, splitting, and the price-tier label.
 
-Fill in the TODOs. Keep ALL data wrangling here so the rest of the code just
-calls these functions. Fix your random seed everywhere (see SEED).
+All data wrangling lives here so the rest of the code just
+calls these functions. The random seed is fixed everywhere (see SEED).
 """
 
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 # --- Config -----------------------------------------------------------------
 SEED = 42
-DATA_PATH = "data/bina_az_sale.csv"   # change if your filename differs
+DATA_PATH = "data/bina_az_sale.csv"   # file name inside the Kaggle archive
 
-# Columns that LEAK the target (derived from price). Drop these before training.
-# TODO: list the actual leakage columns you find (e.g. a unit/per-m2 price).
+# Columns that LEAK the target (derived from price). Dropped before training.
+#   unit_price  = price / area ("3 450 AZN/m²")  -> price restated per m2
+#   total_price = price restated (equal to price in 99.99% of rows)
 LEAKAGE_COLUMNS: list[str] = [
-    # "unit_price",
-    # "total_price",
+    "unit_price",
+    "total_price",
 ]
+
+# Identifiers, personal data and scraping metadata: they do not describe the
+# property, or they encode the listing itself, so they are dropped too.
+IDENTIFIER_COLUMNS: list[str] = [
+    "id_x", "id_y", "estate_id", "estate_details_id_x", "estate_details_id_y",
+    "rel_url", "estate_rel_url_y", "estate_rel_url", "img_url",
+    "owner_name", "owner_title", "shop_name", "shop_title", "address",
+    "datetime_scrape_x", "datetime_scrape_y", "day_x", "hour_x", "day_y",
+    "hour_y", "city_when", "updated", "views", "vip", "featured",
+    "products_label",
+]
+
+# Azerbaijani column name -> English name, for the columns we keep.
+# Not kept: city (99.7% Baku), Binanın növü (99.8% missing), the duplicated
+# English flags (repair / bill_of_sale / mortgage repeat Təmir / Çıxarış /
+# İpoteka) and the free text (description, attributes, extra_info).
+RENAME = {
+    "price": "price",
+    "currency_x": "currency",
+    "estate_rel_url_x": "listing_url",
+    "location": "location",
+    "lat": "lat",
+    "lng": "lng",
+    "Kateqoriya": "category",
+    "Sahə": "area",
+    "Otaq sayı": "rooms",
+    "Mərtəbə": "floor",
+    "Torpaq sahəsi": "land",
+    "Təmir": "repair",
+    "Çıxarış": "bill_of_sale",
+    "İpoteka": "mortgage",
+}
+
+# We model residential property only (Kateqoriya values).
+CATEGORIES = {
+    "Yeni tikili": "new_build",          # flat in a new building
+    "Köhnə tikili": "old_build",         # flat in an old (Soviet) building
+    "Həyət evi/Bağ evi": "house",        # private house / villa
+}
+
+# Outlier rules (fixed domain limits, not statistics of the data).
+PRICE_MIN, PRICE_MAX = 10_000, 5_000_000     # AZN
+AREA_MIN, AREA_MAX = 15, 1_000               # m2
+ROOMS_MAX = 12
+LAND_MAX = 100                               # sot (1 sot = 100 m2)
+LAT_MIN, LAT_MAX = 38.3, 42.0                # Azerbaijan bounding box
+LNG_MIN, LNG_MAX = 44.7, 50.7
+
+N_TOP_LOCATIONS = 20    # one-hot the 20 most common districts, rest = "other"
+
+# Azerbaijani letters -> ASCII, so feature names print on any console.
+AZ_TO_ASCII = {
+    "ə": "e", "Ə": "E", "ı": "i", "İ": "I", "ö": "o", "Ö": "O",
+    "ü": "u", "Ü": "U", "ş": "sh", "Ş": "Sh", "ç": "ch", "Ç": "Ch",
+    "ğ": "g", "Ğ": "G",
+}
+
+
+def to_ascii(text: str) -> str:
+    """Transliterate an Azerbaijani string to a simple ASCII name."""
+    for az, en in AZ_TO_ASCII.items():
+        text = text.replace(az, en)
+    text = text.replace(".", "").strip().replace(" ", "_")
+    return text
 
 
 def load_raw(path: str = DATA_PATH):
     """Read the raw CSV into a DataFrame (keep UTF-8). Return it unmodified."""
-    raise NotImplementedError("TODO: load the raw CSV")
+    return pd.read_csv(path, encoding="utf-8")
 
 
 def clean(df):
