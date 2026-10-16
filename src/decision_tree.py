@@ -44,6 +44,10 @@ class DecisionTree:
         min_impurity_decrease: float = 0.0,
         random_state: int = 42,
     ):
+        if task == "regression" and criterion != "mse":
+            raise ValueError("regression trees use criterion='mse'")
+        if task == "classification" and criterion not in ("gini", "entropy"):
+            raise ValueError("classification trees use 'gini' or 'entropy'")
         self.task = task
         self.criterion = criterion
         self.max_depth = max_depth
@@ -56,7 +60,10 @@ class DecisionTree:
     # --- impurity -----------------------------------------------------------
     def _impurity(self, y) -> float:
         """Gini / entropy (classification) or MSE/variance (regression)."""
-        raise NotImplementedError("TODO: impurity")
+        if self.task == "regression":
+            return float(np.var(y))
+        counts = np.bincount(y, minlength=self.n_classes_).astype(float)
+        return float(self._class_impurity(counts[None, :], np.array([len(y)]))[0])
 
     def _best_split(self, X, y):
         """
