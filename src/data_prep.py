@@ -175,30 +175,84 @@ def clean(df, verbose: bool = True):
 def make_features(df):
     """
     Turn the cleaned frame into a numeric design matrix.
-      - encode categoricals (one-hot / ordinal — your choice, justify it),
-      - assemble X (features) and y (target `price`).
-    Return (X, y, feature_names).
+      - numeric columns are used as they are,
+      - category -> one-hot (3 values),
+      - location -> one-hot for the N_TOP_LOCATIONS most common districts;
+        all other districts share the all-zeros "other" group.
+        (One-hot keeps both models honest: no target statistics are used.)
+    Return (X, y, feature_names) where y is the price in AZN.
     """
-    raise NotImplementedError("TODO: build X, y")
+    numeric = ["area", "rooms", "floor", "total_floors", "land", "lat", "lng",
+               "repair", "bill_of_sale", "mortgage"]
+    columns = [df[c].to_numpy(dtype=float) for c in numeric]
+    names = list(numeric)
+
+    for value in CATEGORIES.values():
+        columns.append((df["category"] == value).to_numpy(dtype=float))
+        names.append("cat_" + value)
+
+    top_locations = df["location"].value_counts().index[:N_TOP_LOCATIONS]
+    for loc in top_locations:
+        columns.append((df["location"] == loc).to_numpy(dtype=float))
+        names.append("loc_" + to_ascii(loc))
+
+    X = np.column_stack(columns)
+    y = df["price"].to_numpy(dtype=float)
+    return X, y, names
 
 
 def make_tier_label(y_price, threshold=None):
     """
     Derived classification target: price TIER (premium vs standard).
-    Use the MEDIAN of the TRAINING price as the split threshold.
+    The threshold is the MEDIAN of the TRAINING price.
       - premium = 1 (price >  threshold), standard = 0.
-    Return (y_tier, threshold).  The threshold must come from TRAIN only
-    (no peeking at val/test) to avoid leakage.
+    Call it once on the training prices (threshold=None) and then reuse the
+    returned threshold for validation / test, so they never set it.
+    Return (y_tier, threshold).
     """
-    raise NotImplementedError("TODO: derive the price-tier label")
+    y_price = np.asarray(y_price, dtype=float)
+    if threshold is None:
+        threshold = float(np.median(y_price))
+    y_tier = (y_price > threshold).astype(int)
+    return y_tier, threshold
 
 
 def train_val_test_split(X, y, val_size=0.15, test_size=0.15, seed=SEED):
     """
     Deterministic split into train / validation / test.
+
+    The split is stratified on the price tier without letting val/test touch
+    the threshold:
+      1) shuffle and take the training part,
+      2) compute the tier threshold on the training prices only,
+      3) split the remaining rows into validation and test separately for
+         each tier, so both keep the same class balance.
     Return (X_tr, y_tr, X_val, y_val, X_te, y_te).
     """
-    raise NotImplementedError("TODO: split the data")
+    X = np.asarray(X)
+    y = np.asarray(y)
+    rng = np.random.default_rng(seed)
+    idx = rng.permutation(len(y))
+
+    n_train = int(round(len(y) * (1 - val_size - test_size)))
+    train_idx = idx[:n_train]
+    rest_idx = idx[n_train:]
+
+    _, threshold = make_tier_label(y[train_idx])
+    rest_tier, _ = make_tier_label(y[rest_idx], threshold)
+
+    val_share = val_size / (val_size + test_size)
+    val_idx, test_idx = [], []
+    for tier in [0, 1]:
+        tier_idx = rest_idx[rest_tier == tier]     # already shuffled
+        n_val = int(round(len(tier_idx) * val_share))
+        val_idx.extend(tier_idx[:n_val])
+        test_idx.extend(tier_idx[n_val:])
+    val_idx = np.array(val_idx)
+    test_idx = np.array(test_idx)
+
+    return (X[train_idx], y[train_idx], X[val_idx], y[val_idx],
+            X[test_idx], y[test_idx])
 
 
 def standardize(X_tr, *others):
@@ -208,4 +262,10 @@ def standardize(X_tr, *others):
     Return the scaled arrays in the same order as given.
     (Needed for the SVM; trees don't require it.)
     """
-    raise NotImplementedError("TODO: standardize using train stats")
+    mean = X_tr.mean(axis=0)
+    std = X_tr.std(axis=0)
+    std[std == 0] = 1.0           # constant column: avoid division by zero
+    scaled = [(X_tr - mean) / std]
+    for X in others:
+        scaled.append((X - mean) / std)
+    return tuple(scaled)
