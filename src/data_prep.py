@@ -92,17 +92,84 @@ def load_raw(path: str = DATA_PATH):
     return pd.read_csv(path, encoding="utf-8")
 
 
-def clean(df):
+def clean(df, verbose: bool = True):
     """
     Clean the raw frame:
-      - fix dtypes (prices/areas to numeric; strip currency/text),
+      - drop LEAKAGE_COLUMNS and identifiers, translate kept column names,
+      - fix dtypes (areas / floors / land arrive as strings with units),
       - handle missing values,
       - drop duplicates,
-      - handle outliers (document your rule),
-      - drop LEAKAGE_COLUMNS.
+      - handle outliers (fixed domain rules, see the constants above).
     Return the cleaned DataFrame.
     """
-    raise NotImplementedError("TODO: clean the data")
+    def log(step, frame):
+        if verbose:
+            print(f"  {step:<45s} rows = {len(frame)}")
+
+    log("raw dump", df)
+
+    # 1) leakage + identifiers out, keep and translate the useful columns
+    df = df.drop(columns=LEAKAGE_COLUMNS + IDENTIFIER_COLUMNS)
+    df = df[list(RENAME.keys())].rename(columns=RENAME)
+
+    # 2) currency: every price must be in AZN (all rows are, but we check)
+    df = df[df["currency"] == "AZN"].copy()
+    log("price in AZN", df)
+
+    # 3) duplicates: the scraper saw the same listing on several pages,
+    #    and some flats are re-posted as new listings with identical content
+    df = df.drop_duplicates(subset="listing_url")
+    log("drop repeated listing URLs", df)
+    df = df.drop_duplicates(
+        subset=["price", "area", "rooms", "floor", "lat", "lng"])
+    log("drop re-posted identical listings", df)
+
+    # 4) residential categories only (land, offices, garages, commercial
+    #    objects follow a different pricing logic; land area is in "sot")
+    df = df[df["category"].isin(CATEGORIES.keys())].copy()
+    df["category"] = df["category"].map(CATEGORIES)
+    log("keep flats and houses", df)
+
+    # 5) type coercion: "145 m²" -> 145.0, "1.3 sot" -> 1.3, "7 / 9" -> 7, 9
+    df["area"] = pd.to_numeric(df["area"].str.replace("m²", "").str.replace(" ", ""),
+                               errors="coerce")
+    df["land"] = pd.to_numeric(df["land"].str.replace("sot", "").str.strip(),
+                               errors="coerce")
+    floors = df["floor"].str.split("/", expand=True)
+    df["floor"] = pd.to_numeric(floors[0].str.strip(), errors="coerce")
+    df["total_floors"] = pd.to_numeric(floors[1].str.strip(), errors="coerce")
+    df["rooms"] = pd.to_numeric(df["rooms"], errors="coerce")
+
+    # 6) missing values
+    #    - floor / total_floors do not exist for houses   -> 0 (not applicable)
+    #    - land area does not exist for flats              -> 0 (not applicable)
+    #    - repair / mortgage / bill of sale: missing means "not stated" -> 0
+    #    - rooms missing (a few houses): we drop those rows
+    is_house = df["category"] == "house"
+    df.loc[is_house, ["floor", "total_floors"]] = 0
+    df.loc[~is_house, "land"] = 0
+    df["repair"] = (df["repair"] == "var").astype(int)
+    df["bill_of_sale"] = (df["bill_of_sale"] == "var").astype(int)
+    df["mortgage"] = (df["mortgage"] == "var").astype(int)
+    df = df.dropna(subset=["price", "area", "rooms", "floor", "total_floors",
+                           "land", "lat", "lng"])
+    log("drop rows with missing numeric values", df)
+
+    # 7) outliers: fixed, documented domain limits
+    keep = (
+        df["price"].between(PRICE_MIN, PRICE_MAX)
+        & df["area"].between(AREA_MIN, AREA_MAX)
+        & df["rooms"].between(1, ROOMS_MAX)
+        & (df["land"] <= LAND_MAX)
+        & (df["floor"] <= df["total_floors"])
+        & df["lat"].between(LAT_MIN, LAT_MAX)
+        & df["lng"].between(LNG_MIN, LNG_MAX)
+    )
+    df = df[keep]
+    log("remove outliers (price/area/rooms/geo rules)", df)
+
+    df = df.drop(columns=["currency", "listing_url"]).reset_index(drop=True)
+    return df
 
 
 def make_features(df):
