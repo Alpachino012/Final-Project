@@ -15,6 +15,23 @@ Suggested design:
   - hyperparameters that control overfitting (below).
 """
 
+
+"""
+Design implemented by our team:
+  - a small Node (feature index, threshold, left, right, value),
+  - recursive _grow with a best-split search over features & thresholds,
+  - impurity functions (gini / entropy / mse) and the impurity-decrease
+    objective used to pick splits,
+  - hyperparameters that control overfitting (max_depth, min_samples_split,
+    min_samples_leaf, min_impurity_decrease).
+
+Formulas (p_k = share of class k in a node):
+    Gini     G = 1 - sum_k p_k^2
+    Entropy  H = - sum_k p_k log2 p_k
+    MSE      I = 1/N sum_i (y_i - mean(y))^2      (variance of the node)
+    Gain     IG = I(parent) - sum_c N_c/N * I(child c)
+"""
+
 from __future__ import annotations
 
 import numpy as np
