@@ -91,13 +91,13 @@ auto-generated "Initial commit" (`0988543`). Together these are 645 lines
 that no team member wrote, about a third of his raw count. Removing them
 gives:
 
-| Member |  Lines in final code (`git blame`), excl. starter | Share |
-|--------|---------------------------:|------:|-------------------------------------------------:|------:|
-| Shahbazli, Alp Eren    | 608 | 34.1% |
-| Isgandarov, Murad  | 435 | 24.4% |
-| Huseynzada, Mehdi  | 358 | 20.0% |
-| Najafov, Malik    | 383 | 21.5% |
-| **Total**         | 1,784 | 100% |
+| Member | Lines in final code (`git blame`), excl. starter | Share |
+|--------|-------------------------------------------------:|------:|
+| Shahbazli, Alp Eren | 608 | 34.1% |
+| Isgandarov, Murad | 435 | 24.4% |
+| Huseynzada, Mehdi | 358 | 20.0% |
+| Najafov, Malik | 383 | 21.5% |
+| **Total** | **1,784** | **100%** |
 
 
 ## Rough effort split
