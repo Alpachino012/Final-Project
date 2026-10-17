@@ -99,3 +99,95 @@ def test_hyperparameters_change_tree():
     rng = np.random.default_rng(0)
     X = np.round(rng.normal(size=(400, 4)), 3)
     y = (X[:, 0] + 0.5 * X[:, 1] + rng.normal(scale=0.7, size=400) > 0).astype(int)
+
+    full = DecisionTree(task="classification").fit(X, y)
+    settings = [
+        {"max_depth": 3},
+        {"min_samples_split": 40},
+        {"min_samples_leaf": 20},
+        {"min_impurity_decrease": 0.01},
+    ]
+    for params in settings:
+        ours = DecisionTree(task="classification", **params).fit(X, y)
+        sk = DecisionTreeClassifier(random_state=0, **params).fit(X, y)
+        assert ours.get_n_leaves() < full.get_n_leaves(), params
+        assert ours.get_n_leaves() == sk.get_n_leaves(), params
+        assert np.array_equal(ours.predict(X), sk.predict(X)), params
+
+
+# --- SVM --------------------------------------------------------------------
+def make_blobs(n=600, seed=0):
+    rng = np.random.default_rng(seed)
+    X = np.vstack([rng.normal(-1.0, 1.0, size=(n // 2, 2)),
+                   rng.normal(1.0, 1.0, size=(n // 2, 2))])
+    y = np.array([0] * (n // 2) + [1] * (n // 2))
+    return X, y
+
+
+def test_svm_loss_decreases():
+    X, y = make_blobs()
+    svm = PegasosSVM(lambda_=0.01, n_epochs=30, batch_size=1).fit(X, y)
+    history = svm.objective_history_
+    assert history[-1] < history[0]
+    assert history[-1] < 0.5          # starts at 1.0 (w = 0)
+
+
+def test_svm_matches_sklearn_on_toy_split():
+    X, y = make_blobs()
+    X_test, y_test = make_blobs(seed=1)
+    ours = PegasosSVM(lambda_=0.01, n_epochs=30, batch_size=1).fit(X, y)
+    sk = SGDClassifier(loss="hinge", alpha=0.01, max_iter=30, tol=None, random_state=0).fit(X, y)
+    acc_ours = np.mean(ours.predict(X_test) == y_test)
+    acc_sk = np.mean(sk.predict(X_test) == y_test)
+    assert abs(acc_ours - acc_sk) < 0.03
+    assert np.mean(ours.predict(X_test) == sk.predict(X_test)) > 0.95
+
+
+def test_svm_margin_and_support_vectors():
+    X, y = make_blobs()
+    svm = PegasosSVM(lambda_=0.01, n_epochs=30).fit(X, y)
+    assert np.isclose(svm.margin_width(), 2.0 / np.linalg.norm(svm.w))
+    sv = svm.support_vector_indices(X, y)
+    y_pm = np.where(y == 1, 1.0, -1.0)
+    margins = y_pm * svm.decision_function(X)
+    assert np.all(margins[sv] <= 1.0)
+    assert np.all(np.delete(margins, sv) > 1.0)
+
+
+# --- metrics and data helpers -----------------------------------------------
+def test_metrics_match_sklearn():
+    rng = np.random.default_rng(0)
+    y_true = rng.normal(size=200)
+    y_pred = y_true + rng.normal(scale=0.5, size=200)
+    assert np.isclose(evaluate.rmse(y_true, y_pred), np.sqrt(metrics.mean_squared_error(y_true, y_pred)))
+    assert np.isclose(evaluate.mae(y_true, y_pred), metrics.mean_absolute_error(y_true, y_pred))
+    assert np.isclose(evaluate.r2(y_true, y_pred), metrics.r2_score(y_true, y_pred))
+
+    labels = rng.integers(0, 2, size=300)
+    predicted = rng.integers(0, 2, size=300)
+    scores = np.round(rng.random(300), 1)            # rounded -> many ties
+    assert np.array_equal(evaluate.confusion_matrix(labels, predicted),
+                          metrics.confusion_matrix(labels, predicted))
+    p, r, f1 = evaluate.precision_recall_f1(labels, predicted)
+    assert np.isclose(p, metrics.precision_score(labels, predicted))
+    assert np.isclose(r, metrics.recall_score(labels, predicted))
+    assert np.isclose(f1, metrics.f1_score(labels, predicted))
+    assert np.isclose(evaluate.roc_auc(labels, scores), metrics.roc_auc_score(labels, scores))
+
+
+def test_tier_threshold_comes_from_train_only():
+    price_train = np.array([100.0, 200.0, 300.0, 400.0])
+    price_test = np.array([1000.0, 1000.0, 50.0])
+    tier_train, threshold = data_prep.make_tier_label(price_train)
+    tier_test, same = data_prep.make_tier_label(price_test, threshold)
+    assert threshold == 250.0 and same == 250.0
+    assert tier_train.tolist() == [0, 0, 1, 1]
+    assert tier_test.tolist() == [1, 1, 0]
+
+
+if __name__ == "__main__":
+    tests = [(name, f) for name, f in sorted(globals().items()) if name.startswith("test_")]
+    for name, test in tests:
+        test()
+        print("PASS", name)
+    print(f"All {len(tests)} tests passed.")
