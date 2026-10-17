@@ -13,10 +13,7 @@ Suggested design:
   - impurity functions (gini / entropy / mse) and the impurity-decrease
     objective used to pick splits,
   - hyperparameters that control overfitting (below).
-"""
 
-
-"""
 Design implemented by our team:
   - a small Node (feature index, threshold, left, right, value),
   - recursive _grow with a best-split search over features & thresholds,
