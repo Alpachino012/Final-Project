@@ -7,7 +7,8 @@ Run from the repo root:
 Steps:
   1. load + clean the data, build features, split, tier label, standardize,
   2. EDA figure (training split only),
-  3. tune OUR decision tree (Task A regression, Task B classification),
+  3. tune OUR decision tree (Task A regression, Task B classification)
+     and OUR Ridge regression (bonus Problem 8, Task A baseline),
   4. tune OUR Pegasos SVM (Task B, linear + random Fourier features),
   5. train the final models and the scikit-learn baselines (matched
      settings) and score them on the test set,
@@ -28,7 +29,7 @@ import matplotlib
 matplotlib.use("Agg")                    # save figures, no window
 import matplotlib.pyplot as plt
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-from sklearn.linear_model import SGDClassifier
+from sklearn.linear_model import SGDClassifier, Ridge
 from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -36,6 +37,7 @@ from sklearn.preprocessing import StandardScaler
 from . import data_prep
 from .decision_tree import DecisionTree
 from .svm import PegasosSVM, RandomFourierFeatures
+from .ridge import RidgeRegression
 from . import evaluate
 
 SEED = data_prep.SEED
@@ -49,6 +51,7 @@ SCHEDULES = ["pegasos", "constant", "invsqrt"]
 EPOCH_CHOICES = [1, 5, 20]
 GAMMAS = [0.003, 0.01, 0.03, 0.1, 0.3]
 RFF_LAMBDAS = [1e-5, 1e-4, 1e-3]
+RIDGE_LAMBDAS = [0.01, 0.1, 1, 10, 100, 1000, 10000]
 
 N_EPOCHS = 20        # Pegasos epochs
 BATCH_SIZE = 32      # mini-batch Pegasos: ~20x faster per epoch, same objective
@@ -291,6 +294,24 @@ def plot_tree_curves(reg, clf):
 
 
 # =============================================================================
+# Bonus (Problem 8): Ridge regression study (validation only)
+# =============================================================================
+def study_ridge(d):
+    section("3c. BONUS - our Ridge regression (normal equations, Task A)")
+    S_tr, S_val = data_prep.standardize(d["X_tr"], d["X_val"])
+    val_rmse = []
+    for lam in RIDGE_LAMBDAS:
+        ridge = RidgeRegression(lambda_=lam).fit(S_tr, d["log_tr"])
+        train_rmse = evaluate.rmse(d["log_tr"], ridge.predict(S_tr))
+        val_rmse.append(evaluate.rmse(d["log_val"], ridge.predict(S_val)))
+        print(f"  lambda={lam:<7g} ||w||={np.linalg.norm(ridge.coef_):6.3f}"
+              f"  train RMSE={train_rmse:.4f}  val RMSE={val_rmse[-1]:.4f}")
+    best_lambda = RIDGE_LAMBDAS[int(np.argmin(val_rmse))]
+    print(f"Chosen on validation: lambda={best_lambda}")
+    return {"lambda": best_lambda}
+
+
+# =============================================================================
 # 3. SVM studies (validation only)
 # =============================================================================
 def study_svm(d):
@@ -411,18 +432,29 @@ def fit_and_predict(model, A_tr, y_tr, A_ev, task):
 
 
 def run_task_a(cfg, X_tr, log_tr, X_ev):
-    """Our regression tree and sklearn's, with the same hyperparameters."""
-    models = {
-        "Ours: decision tree": DecisionTree(
-            task="regression", criterion="mse", max_depth=cfg["reg_depth"],
-            min_samples_leaf=cfg["reg_leaf"]),
-        "sklearn DecisionTreeRegressor": DecisionTreeRegressor(
-            criterion="squared_error", max_depth=cfg["reg_depth"],
-            min_samples_leaf=cfg["reg_leaf"], random_state=SEED),
-    }
+    """Our regression tree and Ridge, and sklearn's, with the same hyperparameters."""
+    # Ridge needs scaled features (train statistics); sklearn's Ridge does the
+    # same scaling inside a Pipeline. Trees use the raw features.
+    S_tr, S_ev = data_prep.standardize(X_tr, X_ev)
+    models = [
+        ("Ours: decision tree",
+         DecisionTree(task="regression", criterion="mse", max_depth=cfg["reg_depth"],
+                      min_samples_leaf=cfg["reg_leaf"]),
+         X_tr, X_ev),
+        ("sklearn DecisionTreeRegressor",
+         DecisionTreeRegressor(criterion="squared_error", max_depth=cfg["reg_depth"],
+                               min_samples_leaf=cfg["reg_leaf"], random_state=SEED),
+         X_tr, X_ev),
+        ("Ours: Ridge (normal equations)",
+         RidgeRegression(lambda_=cfg["ridge_lambda"]),
+         S_tr, S_ev),
+        ("sklearn Ridge",
+         Pipeline([("scale", StandardScaler()), ("ridge", Ridge(alpha=cfg["ridge_lambda"]))]),
+         X_tr, X_ev),
+    ]
     out = {}
-    for name, model in models.items():
-        out[name] = fit_and_predict(model, X_tr, log_tr, X_ev, "A")
+    for name, model, A_tr, A_ev in models:
+        out[name] = fit_and_predict(model, A_tr, log_tr, A_ev, "A")
     return out
 
 
@@ -571,6 +603,17 @@ def compare_with_sklearn(task_a, task_b, d):
     agree = np.mean(task_b["Ours: RFF SVM (Pegasos)"]["pred"]
                     == task_b["sklearn SVC (RBF)"]["pred"])
     print(f"  identical predictions ours RFF vs SVC(RBF): {agree:.4f}")
+
+    ridge = task_a["Ours: Ridge (normal equations)"]["model"]
+    sk_ridge = task_a["sklearn Ridge"]["model"].named_steps["ridge"]
+    pred_diff = np.abs(task_a["Ours: Ridge (normal equations)"]["pred"]
+                       - task_a["sklearn Ridge"]["pred"])
+    print("Ridge regression (bonus, Task A):")
+    print(f"  max |coefficient difference| ours vs sklearn = {np.abs(ridge.coef_ - sk_ridge.coef_).max():.2e}")
+    print(f"  max |prediction difference| = {pred_diff.max():.2e} (log units)")
+    print("  largest coefficients (standardized features, log price):")
+    for i in np.argsort(np.abs(ridge.coef_))[::-1][:5]:
+        print(f"    {names[i]:<28s} {ridge.coef_[i]:+.4f}")
 
 
 def plot_confusion(task_b, d):
@@ -731,6 +774,9 @@ def main() -> None:
     clf = study_tree_classification(d)
     plot_tree_curves(reg, clf)
 
+    # bonus: our Ridge regression, Task A baseline -------------------------
+    ridge = study_ridge(d)
+
     # 3. our SVM: Task B, tuned on validation -----------------------------
     svm = study_svm(d)
     plot_svm_curves(svm)
@@ -738,6 +784,7 @@ def main() -> None:
     # 4. final configs (validation evidence only) -> test + CV -------------
     cfg = {
         "reg_depth": reg["max_depth"], "reg_leaf": reg["min_samples_leaf"],
+        "ridge_lambda": ridge["lambda"],
         "clf_criterion": clf["criterion"], "clf_depth": clf["max_depth"],
         "clf_leaf": clf["min_samples_leaf"],
         "svm_lambda": svm["lambda"], "gamma": svm["gamma"], "rff_lambda": svm["rff_lambda"],
